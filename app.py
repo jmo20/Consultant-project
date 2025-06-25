@@ -7,8 +7,7 @@ import os
 
 st.set_page_config(page_title="Consulting Management App", layout="wide")
 
-# --- Load Dummy Data or Files ---
-@st.cache
+@st.cache_data
 def load_data():
     try:
         customers = pd.read_csv("dummy_customers.csv")
@@ -37,7 +36,6 @@ def load_data():
 if "customers" not in st.session_state:
     st.session_state.customers, st.session_state.consultants = load_data()
 
-# Sidebar - Add Data
 st.sidebar.header("Add Data")
 
 with st.sidebar.expander("➕ Add Customer"):
@@ -86,9 +84,10 @@ def assign_customer(customer_id):
         st.success(f"Assigned {customer_id} to {consultant_name}")
     else:
         st.warning(f"No available consultant match for {customer_id}.")
-        with st.expander("📋 Create Hiring Requisition"):
+        with st.form(f"hiring_req_form_{customer_id}"):
             start_date = st.date_input("Projected Start Date", value=date.today())
-            if st.button("Add Hiring Req"):
+            submit = st.form_submit_button("Add Hiring Req")
+            if submit:
                 req = {
                     "Name": f"Hiring Req #{len(st.session_state.consultants)+1}",
                     "Specialty Industries": customer["Industry"],
@@ -103,7 +102,6 @@ def assign_customer(customer_id):
 st.title("📊 Consulting Management Dashboard")
 tabs = st.tabs(["Overview", "Customer Queue", "Consultants", "Wait Estimator"])
 
-# Tab 1: Overview
 with tabs[0]:
     st.subheader("Summary")
     col1, col2, col3 = st.columns(3)
@@ -111,7 +109,6 @@ with tabs[0]:
     col2.metric("Active Consultants", st.session_state.consultants[st.session_state.consultants["Status"].str.contains("Active")].shape[0])
     col3.metric("Total Assignments", st.session_state.consultants["Current Load"].sum())
 
-# Tab 2: Customer Queue
 with tabs[1]:
     st.subheader("🧾 Prospective Customer Queue")
     unassigned = st.session_state.customers[st.session_state.customers["Status"] == "Unassigned"]
@@ -123,12 +120,10 @@ with tabs[1]:
     st.subheader("All Customers")
     st.dataframe(st.session_state.customers, use_container_width=True)
 
-# Tab 3: Consultants
 with tabs[2]:
     st.subheader("🧑‍💼 Consultant Roster")
     st.dataframe(st.session_state.consultants, use_container_width=True)
 
-# Tab 4: Wait Estimator
 with tabs[3]:
     st.subheader("⏳ Wait Time Estimator")
     segs = st.session_state.customers[st.session_state.customers["Status"] == "Unassigned"].groupby(["Industry", "Revenue Group"]).size().reset_index(name="Customers Waiting")
