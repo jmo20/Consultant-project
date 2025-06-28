@@ -1,11 +1,11 @@
 
 import streamlit as st
 import pandas as pd
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import uuid
 from datetime import date
-import os
 
-st.set_page_config(page_title="Editable Consulting Dashboard", layout="wide")
+st.set_page_config(page_title="Consulting Management - AgGrid", layout="wide")
 
 @st.cache_data
 def load_data():
@@ -13,70 +13,52 @@ def load_data():
         customers = pd.read_csv("dummy_customers.csv")
     except:
         customers = pd.DataFrame(columns=["ID", "Industry", "Revenue Group", "Status", "Assigned Consultant"])
-
     try:
         consultants = pd.read_csv("dummy_consultants.csv")
     except:
         consultants = pd.DataFrame(columns=["Name", "Specialty Industries", "Specialty Revenue Groups", "Current Load", "Max Capacity", "Status"])
-
     return customers, consultants
 
 if "customers" not in st.session_state:
     st.session_state.customers, st.session_state.consultants = load_data()
 
-st.title("🔧 Editable Consulting Management App")
-tabs = st.tabs(["Overview", "Customers", "Consultants", "Forecasting", "Admin"])
+st.title("📊 Consulting Management - AgGrid Inline Editor")
+tabs = st.tabs(["Overview", "Customers", "Consultants", "Forecast"])
 
-# --- Overview ---
 with tabs[0]:
-    st.subheader("📊 Summary")
+    st.subheader("Summary")
     col1, col2 = st.columns(2)
     col1.metric("Total Customers", len(st.session_state.customers))
     col2.metric("Total Consultants", len(st.session_state.consultants))
 
-# --- Customers ---
 with tabs[1]:
-    st.subheader("🧾 All Customers (Editable)")
-    for i, row in st.session_state.customers.iterrows():
-        with st.expander(f"Customer {row['ID']} - {row['Industry']} / {row['Revenue Group']} [{row['Status']}]"):
-            with st.form(f"edit_customer_{row['ID']}"):
-                new_status = st.selectbox("Status", ["Prospective", "Assigned", "Canceled"], index=["Prospective", "Assigned", "Canceled"].index(row["Status"]))
-                new_industry = st.selectbox("Industry", ["Tech", "Financial", "Retail", "Healthcare"], index=["Tech", "Financial", "Retail", "Healthcare"].index(row["Industry"]))
-                new_revenue = st.selectbox("Revenue Group", ["< $10M", "$10M - $100M", "> $100M"], index=["< $10M", "$10M - $100M", "> $100M"].index(row["Revenue Group"]))
-                new_assigned = st.text_input("Assigned Consultant", value=row["Assigned Consultant"])
-                submit = st.form_submit_button("Save Changes")
-                if submit:
-                    st.session_state.customers.at[i, "Status"] = new_status
-                    st.session_state.customers.at[i, "Industry"] = new_industry
-                    st.session_state.customers.at[i, "Revenue Group"] = new_revenue
-                    st.session_state.customers.at[i, "Assigned Consultant"] = new_assigned
-                    st.success("Customer updated!")
+    st.subheader("🧾 Customers - Inline Editable")
+    gb = GridOptionsBuilder.from_dataframe(st.session_state.customers)
+    gb.configure_default_column(editable=True)
+    gb.configure_grid_options(domLayout='normal')
+    grid_response = AgGrid(
+        st.session_state.customers,
+        gridOptions=gb.build(),
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        height=400,
+        fit_columns_on_grid_load=True
+    )
+    st.session_state.customers = grid_response['data']
 
-# --- Consultants ---
 with tabs[2]:
-    st.subheader("🧑‍💼 All Consultants (Editable)")
-    for i, row in st.session_state.consultants.iterrows():
-        with st.expander(f"{row['Name']} - {row['Status']}"):
-            with st.form(f"edit_consultant_{row['Name']}"):
-                new_status = st.selectbox("Status", ["Active", "Pending", "On Hold"], index=0 if "Active" in row["Status"] else 1 if "Pending" in row["Status"] else 2)
-                new_load = st.number_input("Current Load", value=int(row["Current Load"]), min_value=0)
-                new_max = st.number_input("Max Capacity", value=int(row["Max Capacity"]), min_value=1)
-                new_spec_ind = st.text_input("Specialty Industries", value=row["Specialty Industries"])
-                new_spec_rev = st.text_input("Specialty Revenue Groups", value=row["Specialty Revenue Groups"])
-                if "Pending" in row["Status"]:
-                    start_date_input = st.date_input("Projected Start Date", value=date.today())
-                else:
-                    start_date_input = None
-                submit = st.form_submit_button("Save Changes")
-                if submit:
-                    st.session_state.consultants.at[i, "Status"] = new_status if new_status != "Pending" else f"Pending - Starts {start_date_input}" if start_date_input else new_status
-                    st.session_state.consultants.at[i, "Current Load"] = new_load
-                    st.session_state.consultants.at[i, "Max Capacity"] = new_max
-                    st.session_state.consultants.at[i, "Specialty Industries"] = new_spec_ind
-                    st.session_state.consultants.at[i, "Specialty Revenue Groups"] = new_spec_rev
-                    st.success("Consultant updated!")
+    st.subheader("🧑‍💼 Consultants - Inline Editable")
+    gb2 = GridOptionsBuilder.from_dataframe(st.session_state.consultants)
+    gb2.configure_default_column(editable=True)
+    gb2.configure_grid_options(domLayout='normal')
+    grid_response2 = AgGrid(
+        st.session_state.consultants,
+        gridOptions=gb2.build(),
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        height=400,
+        fit_columns_on_grid_load=True
+    )
+    st.session_state.consultants = grid_response2['data']
 
-# --- Forecast ---
 def forecast_wait_time(industry, revenue_group):
     active = st.session_state.consultants[
         (st.session_state.consultants["Status"].str.contains("Active")) &
@@ -86,7 +68,6 @@ def forecast_wait_time(industry, revenue_group):
     ]
     if not active.empty:
         return "0 weeks"
-
     pending = st.session_state.consultants[st.session_state.consultants["Status"].str.contains("Pending")]
     pending["Start Date"] = pending["Status"].str.extract(r"Starts (.*)")
     pending["Start Date"] = pd.to_datetime(pending["Start Date"], errors="coerce")
@@ -107,10 +88,3 @@ with tabs[3]:
         if row["Status"] != "Assigned":
             with st.expander(f"{row['ID']} - {row['Industry']} / {row['Revenue Group']}"):
                 st.write("Forecast:", forecast_wait_time(row["Industry"], row["Revenue Group"]))
-
-# --- Admin ---
-with tabs[4]:
-    st.subheader("⚙️ Admin Panel")
-    st.write("Combined editable data:")
-    st.dataframe(st.session_state.customers, use_container_width=True)
-    st.dataframe(st.session_state.consultants, use_container_width=True)
