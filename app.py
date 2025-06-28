@@ -2,10 +2,10 @@
 import streamlit as st
 import pandas as pd
 import uuid
-from datetime import date, datetime
+from datetime import date
 import os
 
-st.set_page_config(page_title="Enhanced Consulting Management App", layout="wide")
+st.set_page_config(page_title="Editable Consulting Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
@@ -24,39 +24,59 @@ def load_data():
 if "customers" not in st.session_state:
     st.session_state.customers, st.session_state.consultants = load_data()
 
-st.sidebar.header("Add Data")
+st.title("🔧 Editable Consulting Management App")
+tabs = st.tabs(["Overview", "Customers", "Consultants", "Forecasting", "Admin"])
 
-with st.sidebar.expander("➕ Add Prospective Customer"):
-    industry = st.selectbox("Industry", ["Tech", "Financial", "Retail", "Healthcare"])
-    revenue = st.selectbox("Revenue Group", ["< $10M", "$10M - $100M", "> $100M"])
-    if st.button("Add Prospective Customer"):
-        new_customer = {
-            "ID": str(uuid.uuid4())[:8],
-            "Industry": industry,
-            "Revenue Group": revenue,
-            "Status": "Prospective",
-            "Assigned Consultant": ""
-        }
-        st.session_state.customers = pd.concat([st.session_state.customers, pd.DataFrame([new_customer])], ignore_index=True)
+# --- Overview ---
+with tabs[0]:
+    st.subheader("📊 Summary")
+    col1, col2 = st.columns(2)
+    col1.metric("Total Customers", len(st.session_state.customers))
+    col2.metric("Total Consultants", len(st.session_state.consultants))
 
-with st.sidebar.expander("➕ Add Consultant"):
-    name = st.text_input("Consultant Name")
-    spec_ind = st.multiselect("Specialty Industries", ["Tech", "Financial", "Retail", "Healthcare"])
-    spec_rev = st.multiselect("Specialty Revenue Groups", ["< $10M", "$10M - $100M", "> $100M"])
-    max_cap = st.number_input("Max Capacity", min_value=1, max_value=20, value=8, step=1)
-    start_date = st.date_input("Start Date", value=date.today())
-    if st.button("Add Consultant or Hiring Req"):
-        status = "Active" if start_date <= date.today() else f"Pending - Starts {start_date}"
-        new_consultant = {
-            "Name": name if name else f"Hiring Req #{len(st.session_state.consultants) + 1}",
-            "Specialty Industries": ", ".join(spec_ind),
-            "Specialty Revenue Groups": ", ".join(spec_rev),
-            "Current Load": 0,
-            "Max Capacity": max_cap,
-            "Status": status
-        }
-        st.session_state.consultants = pd.concat([st.session_state.consultants, pd.DataFrame([new_consultant])], ignore_index=True)
+# --- Customers ---
+with tabs[1]:
+    st.subheader("🧾 All Customers (Editable)")
+    for i, row in st.session_state.customers.iterrows():
+        with st.expander(f"Customer {row['ID']} - {row['Industry']} / {row['Revenue Group']} [{row['Status']}]"):
+            with st.form(f"edit_customer_{row['ID']}"):
+                new_status = st.selectbox("Status", ["Prospective", "Assigned", "Canceled"], index=["Prospective", "Assigned", "Canceled"].index(row["Status"]))
+                new_industry = st.selectbox("Industry", ["Tech", "Financial", "Retail", "Healthcare"], index=["Tech", "Financial", "Retail", "Healthcare"].index(row["Industry"]))
+                new_revenue = st.selectbox("Revenue Group", ["< $10M", "$10M - $100M", "> $100M"], index=["< $10M", "$10M - $100M", "> $100M"].index(row["Revenue Group"]))
+                new_assigned = st.text_input("Assigned Consultant", value=row["Assigned Consultant"])
+                submit = st.form_submit_button("Save Changes")
+                if submit:
+                    st.session_state.customers.at[i, "Status"] = new_status
+                    st.session_state.customers.at[i, "Industry"] = new_industry
+                    st.session_state.customers.at[i, "Revenue Group"] = new_revenue
+                    st.session_state.customers.at[i, "Assigned Consultant"] = new_assigned
+                    st.success("Customer updated!")
 
+# --- Consultants ---
+with tabs[2]:
+    st.subheader("🧑‍💼 All Consultants (Editable)")
+    for i, row in st.session_state.consultants.iterrows():
+        with st.expander(f"{row['Name']} - {row['Status']}"):
+            with st.form(f"edit_consultant_{row['Name']}"):
+                new_status = st.selectbox("Status", ["Active", "Pending", "On Hold"], index=0 if "Active" in row["Status"] else 1 if "Pending" in row["Status"] else 2)
+                new_load = st.number_input("Current Load", value=int(row["Current Load"]), min_value=0)
+                new_max = st.number_input("Max Capacity", value=int(row["Max Capacity"]), min_value=1)
+                new_spec_ind = st.text_input("Specialty Industries", value=row["Specialty Industries"])
+                new_spec_rev = st.text_input("Specialty Revenue Groups", value=row["Specialty Revenue Groups"])
+                if "Pending" in row["Status"]:
+                    start_date_input = st.date_input("Projected Start Date", value=date.today())
+                else:
+                    start_date_input = None
+                submit = st.form_submit_button("Save Changes")
+                if submit:
+                    st.session_state.consultants.at[i, "Status"] = new_status if new_status != "Pending" else f"Pending - Starts {start_date_input}" if start_date_input else new_status
+                    st.session_state.consultants.at[i, "Current Load"] = new_load
+                    st.session_state.consultants.at[i, "Max Capacity"] = new_max
+                    st.session_state.consultants.at[i, "Specialty Industries"] = new_spec_ind
+                    st.session_state.consultants.at[i, "Specialty Revenue Groups"] = new_spec_rev
+                    st.success("Consultant updated!")
+
+# --- Forecast ---
 def forecast_wait_time(industry, revenue_group):
     active = st.session_state.consultants[
         (st.session_state.consultants["Status"].str.contains("Active")) &
@@ -65,7 +85,7 @@ def forecast_wait_time(industry, revenue_group):
         (st.session_state.consultants["Specialty Revenue Groups"].str.contains(revenue_group))
     ]
     if not active.empty:
-        return "0 weeks (immediate capacity available)"
+        return "0 weeks"
 
     pending = st.session_state.consultants[st.session_state.consultants["Status"].str.contains("Pending")]
     pending["Start Date"] = pending["Status"].str.extract(r"Starts (.*)")
@@ -78,30 +98,19 @@ def forecast_wait_time(industry, revenue_group):
         soonest = filtered["Start Date"].min()
         if pd.notnull(soonest):
             delta_weeks = (soonest.date() - date.today()).days // 7
-            return f"Est. {delta_weeks} week(s) (based on pending hire)"
-    return "Need more prospective consultants to forecast wait time"
-
-st.title("🚀 Enhanced Consulting Management Dashboard")
-tabs = st.tabs(["Overview", "Customers", "Consultants", "Forecasting"])
-
-with tabs[0]:
-    st.subheader("🔎 Summary")
-    col1, col2 = st.columns(2)
-    col1.metric("Total Customers", len(st.session_state.customers))
-    col2.metric("Total Consultants (Incl. Hiring Reqs)", len(st.session_state.consultants))
-
-with tabs[1]:
-    st.subheader("📋 All Customers (Active & Prospective)")
-    st.dataframe(st.session_state.customers, use_container_width=True)
-
-with tabs[2]:
-    st.subheader("🧑‍💼 All Consultants (Active & Pending)")
-    st.dataframe(st.session_state.consultants, use_container_width=True)
+            return f"{max(delta_weeks, 0)} week(s)"
+    return "Need more prospective consultants"
 
 with tabs[3]:
     st.subheader("⏳ Wait Time Forecast")
-    unassigned = st.session_state.customers[st.session_state.customers["Status"] != "Assigned"]
-    for _, row in unassigned.iterrows():
-        with st.expander(f"Customer {row['ID']} - {row['Industry']} / {row['Revenue Group']}"):
-            wait = forecast_wait_time(row["Industry"], row["Revenue Group"])
-            st.write("Estimated Wait Time:", wait)
+    for _, row in st.session_state.customers.iterrows():
+        if row["Status"] != "Assigned":
+            with st.expander(f"{row['ID']} - {row['Industry']} / {row['Revenue Group']}"):
+                st.write("Forecast:", forecast_wait_time(row["Industry"], row["Revenue Group"]))
+
+# --- Admin ---
+with tabs[4]:
+    st.subheader("⚙️ Admin Panel")
+    st.write("Combined editable data:")
+    st.dataframe(st.session_state.customers, use_container_width=True)
+    st.dataframe(st.session_state.consultants, use_container_width=True)
